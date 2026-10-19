@@ -11,6 +11,23 @@ Small launcher wrapper for Star Wars: The Old Republic. It starts the game launc
 It works the same as launching the game normally — the launcher still runs, you still log in,
 and the wrapper exits once the injection is done.
 
+## Steam
+
+Steam starts `launcher.exe` itself, so there is nothing for the wrapper to sit in front of.
+Use watch mode instead:
+
+```
+SWTORWrapper.exe -watch
+```
+
+It sits in the tray, launches nothing, and injects into any `swtor.exe` that appears — however
+it was started. Put a shortcut to it (with the `-watch` argument) in `shell:startup`, then just
+press Play in Steam as usual. Exit it from its tray menu.
+
+Do **not** replace `launcher.exe` with the wrapper to force the Steam path. The SWTOR launcher
+updates itself, and Steam's "Verify integrity of game files" restores the original, so the
+replacement does not survive an update.
+
 ## How it works
 
 - Starts `launcher.exe`.

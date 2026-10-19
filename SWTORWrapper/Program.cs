@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Drawing;
 using System.Windows.Forms;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -46,6 +48,26 @@ namespace SWTORWrapper
         [STAThread]
         static void Main(string[] args)
         {
+            bool watchMode = false;
+            foreach (string arg in args)
+            {
+                if (arg.Equals("-watch", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("--watch", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("/watch", StringComparison.OrdinalIgnoreCase))
+                {
+                    watchMode = true;
+                    break;
+                }
+            }
+
+            //Watch mode: something else starts the game (Steam, a shortcut, launcher.exe
+            //directly) and we only inject when swtor.exe appears.
+            if (watchMode)
+            {
+                RunWatcher();
+                return;
+            }
+
             //Start the SWTOR launcher
             Process proc = new Process();
             proc.StartInfo.FileName = "launcher.exe";
@@ -110,6 +132,74 @@ namespace SWTORWrapper
                 }
             }
         }
+
+        /// <summary>
+        /// Watch mode. Sits in the tray and injects into any swtor.exe that appears,
+        /// no matter what started it. Nothing is launched.
+        /// </summary>
+        static void RunWatcher()
+        {
+            string dllName = System.IO.Directory.GetCurrentDirectory() + "\\SWTORFix.dll";
+            HashSet<int> injected = new HashSet<int>();
+            bool reported = false;
+
+            NotifyIcon tray = new NotifyIcon();
+            try
+            {
+                tray.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch { }
+            tray.Text = "SWTORFix - waiting for the game";
+            tray.Visible = true;
+
+            ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Items.Add("Exit", null, (s, e) =>
+            {
+                tray.Visible = false;
+                Application.Exit();
+            });
+            tray.ContextMenuStrip = menu;
+
+            Timer timer = new Timer();
+            timer.Interval = 1000;
+            timer.Tick += (s, e) =>
+            {
+                HashSet<int> alive = new HashSet<int>();
+                foreach (Process p in Process.GetProcessesByName("swtor"))
+                {
+                    try
+                    {
+                        alive.Add(p.Id);
+                        if (!injected.Contains(p.Id))
+                        {
+                            InjectDLL(p, dllName);
+                            injected.Add(p.Id);
+
+                            if (!reported)
+                            {
+                                reported = true;
+                                tray.Text = "SWTORFix - injected";
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // process exited between enumeration and injection
+                    }
+                    finally
+                    {
+                        p.Dispose();
+                    }
+                }
+
+                //Forget exited processes so a reused PID gets injected again
+                injected.IntersectWith(alive);
+            };
+            timer.Start();
+
+            Application.Run();
+        }
+
         static void InjectDLL(Process targetProcess, String dllName)
         {
             // geting the handle of the process - with required privileges
