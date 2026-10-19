@@ -144,6 +144,7 @@ namespace SWTORWrapper
             bool reported = false;
 
             NotifyIcon tray = new NotifyIcon();
+            tray.Icon = SystemIcons.Application;
             try
             {
                 tray.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
