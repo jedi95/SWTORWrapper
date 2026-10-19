@@ -3,6 +3,8 @@
 Small launcher wrapper for Star Wars: The Old Republic. It starts the game launcher, waits for
 `swtor.exe` to appear, and injects `SWTORFix.dll` into it.
 
+The fix itself is [SWTORFix](https://git.jedi95.com/jedi95/SWTORFix).
+
 ## Usage
 
 1. Put `SWTORWrapper.exe` and `SWTORFix.dll` in the same folder as `launcher.exe`.
