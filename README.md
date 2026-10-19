@@ -24,3 +24,7 @@ and the wrapper exits once the injection is done.
 ## Build
 
 Visual Studio 2022, .NET Framework 4.8, x64. Output is `SWTORWrapper.exe`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
