@@ -13,6 +13,44 @@ The fix itself is [SWTORFix](https://git.jedi95.com/jedi95/SWTORFix).
 It works the same as launching the game normally — the launcher still runs, you still log in,
 and the wrapper exits once the injection is done.
 
+## Configuration
+
+Optional `SWTORWrapper.ini` beside `SWTORWrapper.exe`:
+
+```ini
+[launcher]
+CacheHours=0
+```
+
+| key | default | meaning |
+|---|---|---|
+| `CacheHours` | `0` | Hours a cached command line may be reused. `0` disables the cache; values above `48` are clamped to `48`. |
+
+With the default of `0` the cache is never read and never written — the wrapper always goes
+through `launcher.exe`. Set it to a positive number to skip the launcher on subsequent runs.
+
+`-ignorecache` (also `--ignorecache`, `/ignorecache`) forces the launcher for a single run
+regardless of the setting.
+
+The ini is read from the executable's own directory, not the working directory, and is parsed
+as UTF-8 or UTF-16 — encoding is detected, not assumed.
+
+## Cached credential
+
+When caching is enabled, the wrapper writes `swtor_cmdline_cache.txt` **beside the executable**
+after a launcher run:
+
+```
+<UTC timestamp, round-trip format>
+<full command line of swtor.exe, including the login token>
+```
+
+That file is a live credential until the token expires. Treat it accordingly, and delete it to
+force a fresh login. It is git-ignored.
+
+Every cache decision is reported through `OutputDebugString`, so DebugView shows the resolved
+ini path, the parsed value, whether the cache was used, and whether the write succeeded.
+
 ## Steam
 
 Steam starts `launcher.exe` itself, so there is nothing for the wrapper to sit in front of.
@@ -38,7 +76,8 @@ replacement does not survive an update.
   `CreateRemoteThread`.
 - Exits after injecting, or 10 seconds after the launcher exits.
 
-`SWTORFix.dll` must sit beside `SWTORWrapper.exe`; the path is built from the working directory.
+`SWTORFix.dll` must sit beside `SWTORWrapper.exe`; the path is resolved from the executable's
+directory, so a shortcut or Steam launch with a different working directory still finds it.
 
 ## Build
 
