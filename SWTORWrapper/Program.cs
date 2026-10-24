@@ -90,10 +90,25 @@ namespace SWTORWrapper
             Application.Exit();
         }
 
+        /// <summary>
+        /// Directory the executable lives in. The fix DLL sits beside it, and this must not
+        /// depend on the working directory - a shortcut or Steam launch can set that anywhere.
+        /// </summary>
+        static string ExeDirectory()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(Application.ExecutablePath);
+                if (!string.IsNullOrEmpty(dir)) return dir;
+            }
+            catch { }
+            return AppDomain.CurrentDomain.BaseDirectory;
+        }
+
         static void WaitToInject(Process pLauncher)
         {
             bool injected = false;
-            string dllName = System.IO.Directory.GetCurrentDirectory() + "\\SWTORFix.dll";
+            string dllName = Path.Combine(ExeDirectory(), "SWTORFix.dll");
             while (!injected)
             {
                 Process[] pList = Process.GetProcessesByName("swtor");
@@ -139,7 +154,7 @@ namespace SWTORWrapper
         /// </summary>
         static void RunWatcher()
         {
-            string dllName = System.IO.Directory.GetCurrentDirectory() + "\\SWTORFix.dll";
+            string dllName = Path.Combine(ExeDirectory(), "SWTORFix.dll");
             HashSet<int> injected = new HashSet<int>();
             bool reported = false;
 
