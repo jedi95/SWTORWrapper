@@ -1,0 +1,15 @@
+; Copy to SWTORWrapper.ini beside SWTORWrapper.exe to override the defaults.
+;
+; The launcher token is not consumed on use, so a captured command line can be
+; replayed to skip launcher.exe. That is a cached login credential - it lives in
+; swtor_cmdline_cache.txt beside the executable.
+
+[launcher]
+; Hours a cached command line may be reused. 0 disables the cache entirely.
+; Values above 48 are clamped to 48.
+CacheHours=0
+
+; Comma-separated process names to inject into. .exe is optional, case does not
+; matter. Default covers both clients: swtor.exe (DX11) and swtor_RC2.exe (DX12).
+; Set this if a future patch renames the client again - no rebuild needed.
+ProcessNames=swtor,swtor_RC2

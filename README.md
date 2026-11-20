@@ -30,7 +30,11 @@ ProcessNames=swtor,swtor_RC2
 | `ProcessNames` | `swtor,swtor_RC2` | Comma-separated process names to inject into. `.exe` is optional and case does not matter. Set this if a future patch renames the client again — no rebuild needed. |
 
 With the default of `0` the cache is never read and never written — the wrapper always goes
-through `launcher.exe`. Set it to a positive number to skip the launcher on subsequent runs.
+through `launcher.exe`. Set it to a positive number to skip the launcher on subsequent runs:
+the login token is not consumed on use, so replaying the captured command line starts the client
+directly, with no launcher and no login form.
+
+`SWTORWrapper.ini.example` in this repo is a commented starting point for both keys.
 
 `-ignorecache` (also `--ignorecache`, `/ignorecache`) forces the launcher for a single run
 regardless of the setting.
