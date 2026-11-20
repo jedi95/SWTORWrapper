@@ -11,7 +11,7 @@ namespace SWTORWrapper
 {
     static class Program
     {
-        [DllImport("kernel32.dll")]
+        [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr OpenProcess(int dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
@@ -30,9 +30,12 @@ namespace SWTORWrapper
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out UIntPtr lpNumberOfBytesWritten);
 
-        [DllImport("kernel32.dll")]
+        [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr CreateRemoteThread(IntPtr hProcess,
             IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool CloseHandle(IntPtr hObject);
 
         // privileges
         const int PROCESS_CREATE_THREAD = 0x0002;
@@ -49,6 +52,12 @@ namespace SWTORWrapper
         // cached login token lifetime, in hours
         const int DefaultCacheHours = 0;    // no cache
         const int MaxCacheHours = 48;
+
+        // Process names the client runs under. swtor.exe is the client the wrapper has
+        // always targeted; swtor_RC2.exe is the DX12 client a later patch added. The
+        // launcher decides which one it starts, so both are watched and injected.
+        // Override with [launcher] ProcessNames in SWTORWrapper.ini if a patch renames it again.
+        static readonly string[] DefaultProcessNames = { "swtor", "swtor_RC2" };
 
         static string ExeDirectory()
         {
@@ -68,14 +77,15 @@ namespace SWTORWrapper
 
         /// <summary>
         /// Minimal ini reader. File.ReadAllLines handles UTF-8, UTF-16 with a BOM, and both
-        /// CRLF and LF. GetPrivateProfileInt only copes with ANSI and fails silently on
+        /// CRLF and LF. GetPrivateProfileString only copes with ANSI and fails silently on
         /// anything else, which is indistinguishable from the key being absent.
+        /// Returns the value text, or null when the file, section or key is missing.
         /// </summary>
-        static int ReadIniInt(string iniPath, string section, string key, int fallback)
+        static string ReadIniValue(string iniPath, string section, string key)
         {
             try
             {
-                if (!File.Exists(iniPath)) return fallback;
+                if (!File.Exists(iniPath)) return null;
 
                 string current = string.Empty;
                 foreach (string raw in File.ReadAllLines(iniPath))
@@ -97,12 +107,18 @@ namespace SWTORWrapper
                     if (!string.Equals(line.Substring(0, eq).Trim(), key, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    int value;
-                    if (int.TryParse(line.Substring(eq + 1).Trim(), out value))
-                        return value;
+                    return line.Substring(eq + 1).Trim();
                 }
             }
             catch { }
+            return null;
+        }
+
+        static int ReadIniInt(string iniPath, string section, string key, int fallback)
+        {
+            string value = ReadIniValue(iniPath, section, key);
+            int parsed;
+            if (!string.IsNullOrEmpty(value) && int.TryParse(value, out parsed)) return parsed;
             return fallback;
         }
 
@@ -122,6 +138,60 @@ namespace SWTORWrapper
             Diag(string.Format("ini={0} exists={1} CacheHours={2} -> {3}",
                                iniPath, File.Exists(iniPath), hours, clamped));
             return clamped;
+        }
+
+        /// <summary>
+        /// Process names to inject into, from [launcher] ProcessNames (comma-separated).
+        /// ".exe" is stripped, so "swtor.exe, swtor_RC2.exe" means the same as "swtor,swtor_RC2".
+        /// A missing or empty key falls back to DefaultProcessNames.
+        /// </summary>
+        static string[] GetProcessNames()
+        {
+            string iniPath = Path.Combine(ExeDirectory(), "SWTORWrapper.ini");
+            string configured = ReadIniValue(iniPath, "launcher", "ProcessNames");
+
+            List<string> names = new List<string>();
+            if (!string.IsNullOrEmpty(configured))
+            {
+                foreach (string part in configured.Split(','))
+                {
+                    string name = part.Trim();
+                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        name = name.Substring(0, name.Length - 4).Trim();
+                    if (name.Length == 0) continue;
+                    if (!names.Exists(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
+                        names.Add(name);
+                }
+            }
+
+            string[] result = names.Count > 0 ? names.ToArray() : DefaultProcessNames;
+            Diag("target processes: " + string.Join(", ", result));
+            return result;
+        }
+
+        /// <summary>
+        /// Every live process matching one of the supported client executables, deduplicated
+        /// by pid. The caller owns the returned handles.
+        /// </summary>
+        static List<Process> FindGameProcesses(string[] processNames)
+        {
+            List<Process> found = new List<Process>();
+            foreach (string name in processNames)
+            {
+                try
+                {
+                    foreach (Process candidate in Process.GetProcessesByName(name))
+                    {
+                        if (found.Exists(existing => existing.Id == candidate.Id)) candidate.Dispose();
+                        else found.Add(candidate);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Diag("enumerating process " + name + " failed: " + ex.Message);
+                }
+            }
+            return found;
         }
 
         /// <summary>
@@ -155,6 +225,7 @@ namespace SWTORWrapper
             }
 
             int cacheHours = GetCacheHours();
+            string[] processNames = GetProcessNames();
 
             string cacheFile = Path.Combine(ExeDirectory(), "swtor_cmdline_cache.txt");
             bool useCache = false;
@@ -219,7 +290,7 @@ namespace SWTORWrapper
             //Start looking for the swtor.exe process (blocking)
             Diag(string.Format("useCache={0} updateCache={1} cacheFile={2}",
                                useCache, updateCache, cacheFile));
-            WaitToInject(proc, updateCache && cacheHours > 0);
+            WaitToInject(proc, updateCache && cacheHours > 0, processNames);
 
             //All done
             Application.Exit();
@@ -267,40 +338,48 @@ namespace SWTORWrapper
             return null;
         }
 
-        static void WaitToInject(Process pLauncher, bool updateCache)
+        static void WaitToInject(Process pLauncher, bool updateCache, string[] processNames)
         {
             bool injected = false;
             string dllName = Path.Combine(ExeDirectory(), "SWTORFix.dll");
             while (!injected)
             {
-                Process[] pList = Process.GetProcessesByName("swtor");
-                if (pList.Length > 0) //Make sure we found a process
+                //Either client counts: swtor.exe (DX11) or swtor_RC2.exe (DX12)
+                List<Process> pList = FindGameProcesses(processNames);
+                if (pList.Count > 0) //Make sure we found a process
                 {
                     //Loop through processes
-                    for (int i = 0; i < pList.Length; i++)
+                    for (int i = 0; i < pList.Count; i++)
                     {
-                        InjectDLL(pList[i], dllName);
-
-                        if (updateCache)
+                        try
                         {
-                            try
+                            InjectDLL(pList[i], dllName);
+
+                            if (updateCache)
                             {
-                                string cmdLine = GetCommandLine(pList[i].Id);
-                                if (!string.IsNullOrEmpty(cmdLine))
+                                try
                                 {
-                                    string cacheFile = Path.Combine(ExeDirectory(), "swtor_cmdline_cache.txt");
-                                    File.WriteAllLines(cacheFile, new string[] { DateTime.UtcNow.ToString("o"), cmdLine });
-                                    Diag("cache written: " + cacheFile);
+                                    string cmdLine = GetCommandLine(pList[i].Id);
+                                    if (!string.IsNullOrEmpty(cmdLine))
+                                    {
+                                        string cacheFile = Path.Combine(ExeDirectory(), "swtor_cmdline_cache.txt");
+                                        File.WriteAllLines(cacheFile, new string[] { DateTime.UtcNow.ToString("o"), cmdLine });
+                                        Diag("cache written: " + cacheFile);
+                                    }
+                                    else
+                                    {
+                                        Diag("WMI returned no command line for pid " + pList[i].Id);
+                                    }
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    Diag("WMI returned no command line for pid " + pList[i].Id);
+                                    Diag("cache write failed: " + ex.Message);
                                 }
                             }
-                            catch (Exception ex)
-                            {
-                                Diag("cache write failed: " + ex.Message);
-                            }
+                        }
+                        finally
+                        {
+                            pList[i].Dispose();
                         }
                     }
 
@@ -338,6 +417,7 @@ namespace SWTORWrapper
         static void RunWatcher()
         {
             string dllName = Path.Combine(ExeDirectory(), "SWTORFix.dll");
+            string[] processNames = GetProcessNames();
             HashSet<int> injected = new HashSet<int>();
             bool reported = false;
 
@@ -364,7 +444,7 @@ namespace SWTORWrapper
             timer.Tick += (s, e) =>
             {
                 HashSet<int> alive = new HashSet<int>();
-                foreach (Process p in Process.GetProcessesByName("swtor"))
+                foreach (Process p in FindGameProcesses(processNames))
                 {
                     try
                     {
@@ -401,22 +481,56 @@ namespace SWTORWrapper
 
         static void InjectDLL(Process targetProcess, String dllName)
         {
+            string target = targetProcess.ProcessName + "(" + targetProcess.Id + ")";
+
             // geting the handle of the process - with required privileges
             IntPtr procHandle = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, targetProcess.Id);
+            if (procHandle == IntPtr.Zero)
+            {
+                Diag("OpenProcess failed for " + target + ", win32 error " + Marshal.GetLastWin32Error());
+                return;
+            }
 
-            // searching for the address of LoadLibraryA and storing it in a pointer
-            IntPtr loadLibraryAddr = GetProcAddress(GetModuleHandle("kernel32.dll"), "LoadLibraryA");
+            try
+            {
+                // searching for the address of LoadLibraryA and storing it in a pointer
+                IntPtr loadLibraryAddr = GetProcAddress(GetModuleHandle("kernel32.dll"), "LoadLibraryA");
 
-            // alocating some memory on the target process - enough to store the name of the dll
-            // and storing its address in a pointer
-            IntPtr allocMemAddress = VirtualAllocEx(procHandle, IntPtr.Zero, (uint)((dllName.Length + 1) * Marshal.SizeOf(typeof(char))), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+                // alocating some memory on the target process - enough to store the name of the dll
+                // and storing its address in a pointer
+                uint size = (uint)((dllName.Length + 1) * Marshal.SizeOf(typeof(char)));
+                IntPtr allocMemAddress = VirtualAllocEx(procHandle, IntPtr.Zero, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+                if (allocMemAddress == IntPtr.Zero)
+                {
+                    Diag("VirtualAllocEx failed for " + target + ", win32 error " + Marshal.GetLastWin32Error());
+                    return;
+                }
 
-            // writing the name of the dll there
-            UIntPtr bytesWritten;
-            WriteProcessMemory(procHandle, allocMemAddress, System.Text.Encoding.Default.GetBytes(dllName), (uint)((dllName.Length + 1) * Marshal.SizeOf(typeof(char))), out bytesWritten);
+                // writing the name of the dll there
+                UIntPtr bytesWritten;
+                if (!WriteProcessMemory(procHandle, allocMemAddress, System.Text.Encoding.Default.GetBytes(dllName), size, out bytesWritten))
+                {
+                    Diag("WriteProcessMemory failed for " + target + ", win32 error " + Marshal.GetLastWin32Error());
+                    return;
+                }
 
-            // creating a thread that will call LoadLibraryA with allocMemAddress as argument
-            CreateRemoteThread(procHandle, IntPtr.Zero, 0, loadLibraryAddr, allocMemAddress, 0, IntPtr.Zero);
+                // creating a thread that will call LoadLibraryA with allocMemAddress as argument
+                IntPtr remoteThread = CreateRemoteThread(procHandle, IntPtr.Zero, 0, loadLibraryAddr, allocMemAddress, 0, IntPtr.Zero);
+                if (remoteThread == IntPtr.Zero)
+                {
+                    Diag("CreateRemoteThread failed for " + target + ", win32 error " + Marshal.GetLastWin32Error());
+                    return;
+                }
+
+                Diag("injected " + dllName + " into " + target);
+
+                // the remote thread keeps its own references; nothing here has to stay open
+                CloseHandle(remoteThread);
+            }
+            finally
+            {
+                CloseHandle(procHandle);
+            }
         }
     }
 }
