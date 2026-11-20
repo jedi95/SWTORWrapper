@@ -2,7 +2,7 @@
 
 Small launcher wrapper for Star Wars: The Old Republic. It starts the game launcher, waits for
 the client to appear, and injects `SWTORFix.dll` into it. Both client executables are supported:
-`swtor.exe` and `swtor_RC2.exe`, the DX12 renderer client a recent patch added.
+`swtor.exe` (DX9) and `swtor_RC2.exe`, the DX12 renderer client a recent patch added.
 
 The fix itself is [SWTORFix](https://git.jedi95.com/jedi95/SWTORFix).
 

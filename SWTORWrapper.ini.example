@@ -10,6 +10,6 @@
 CacheHours=0
 
 ; Comma-separated process names to inject into. .exe is optional, case does not
-; matter. Default covers both clients: swtor.exe (DX11) and swtor_RC2.exe (DX12).
+; matter. Default covers both clients: swtor.exe (DX9) and swtor_RC2.exe (DX12).
 ; Set this if a future patch renames the client again - no rebuild needed.
 ProcessNames=swtor,swtor_RC2

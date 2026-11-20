@@ -53,8 +53,8 @@ namespace SWTORWrapper
         const int DefaultCacheHours = 0;    // no cache
         const int MaxCacheHours = 48;
 
-        // Process names the client runs under. swtor.exe is the client the wrapper has
-        // always targeted; swtor_RC2.exe is the DX12 client a later patch added. The
+        // Process names the client runs under. swtor.exe is the original DX9 client the
+        // wrapper has always targeted; swtor_RC2.exe is the DX12 client a later patch added. The
         // launcher decides which one it starts, so both are watched and injected.
         // Override with [launcher] ProcessNames in SWTORWrapper.ini if a patch renames it again.
         static readonly string[] DefaultProcessNames = { "swtor", "swtor_RC2" };
@@ -344,7 +344,7 @@ namespace SWTORWrapper
             string dllName = Path.Combine(ExeDirectory(), "SWTORFix.dll");
             while (!injected)
             {
-                //Either client counts: swtor.exe (DX11) or swtor_RC2.exe (DX12)
+                //Either client counts: swtor.exe (DX9) or swtor_RC2.exe (DX12)
                 List<Process> pList = FindGameProcesses(processNames);
                 if (pList.Count > 0) //Make sure we found a process
                 {
